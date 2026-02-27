@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>C-RAM Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            background-color:
+                #000;
+            overflow: hidden;
+        }
+    </style>
+</head>
+
+<body>
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script>
+        // scene setup
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x001100);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        const ambientLight = new THREE.AmbientLight(0xffffff, .5);
+        scene.add(ambientLight);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+        sunLight.position.set(100, 100, 100);
+        scene.add(sunLight);
+
+        // variables
+
+        const RoundsPerMinute = 4500;
+        const velocity = 3600
+        const growth = 10;
+        const selfDestruct = 2.3;
+        const explosionLength = .002;
+
+        const cram = new THREE.Group();
+        cram.position.y = 2.1;
+        scene.add(cram);
+        let gunAsm = new THREE.Group();
+        cram.add(gunAsm);
+        gunAsm.position.set(0, .75, 0);
+        gunAsm.add(camera);
+        camera.position.set(-3, 1, 4);
+        const sensitivity = 0.001;
+        let yaw = 0;
+        let pitch = 0;
+        const projectiles = [];
+        const barrelPos = new THREE.Vector3();
+        const barrelRotation = new THREE.Quaternion();
+        const clock = new THREE.Clock()
+        let mouseDown = false;
+        const RPS = RoundsPerMinute / 60;
+        let fireRate = 1 / RPS;
+        let lastFired = 0;
+        const g = 32;
+        let delta = 0;
+        const ratio = 5.5;
+
+        // function definitions
+
+        function loadTexture(source) {
+            const loader = new THREE.TextureLoader();
+            const texture = loader.load(source);
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+        }
+
+        // event listeners
+
+        const keys = {};
+
+        window.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            delete keys[e.code];
+        });
+
+        window.addEventListener('click', () => {
+            renderer.domElement.requestPointerLock();
+        });
+
+        window.addEventListener('mousemove', (event) => {
+
+            yaw -= event.movementX * sensitivity;
+            pitch -= event.movementY * sensitivity;
+
+            pitch = Math.max(-Math.PI / 8, Math.min(Math.PI / 2, pitch));
+
+            camera.rotation.order = "YXZ";
+
+            gunAsm.rotation.x = pitch;
+            cram.rotation.y = yaw;
+        });
+
+        window.addEventListener('mousedown', (event) => {
+            if (document.pointerLockElement === renderer.domElement && event.button === 0) {
+                mouseDown = true;
+            }
+        });
+
+        window.addEventListener('mouseup', () => { mouseDown = false; });
+
+        window.addEventListener('resize', function () {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // materials
+
+        const cramMat = new THREE.MeshLambertMaterial({ color: 0xBA9F80, flatShading: true })
+        const gunMat = new THREE.MeshLambertMaterial({ color: 0x637e54, flatShading: true })
+        const barrelMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
+        const radarMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x229922, flatShading: true, roughness: 0.8, metalness: 0.0, })
+        const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, blending: THREE.AdditiveBlending })
+        const explosionMat = new THREE.MeshBasicMaterial({color: 0xffee00, transparent: true, blending: THREE.AdditiveBlending})
+
+        const bulletGeo = new THREE.BoxGeometry(.1, .1, 4)
+        const explosionGeo = new THREE.SphereGeometry(.1)
+
+        const groundGeo = new THREE.PlaneGeometry(100, 100, 100, 100);
+        const vertices = groundGeo.attributes.position.array;
+        for (let i = 0; i < vertices.length; i += 3) {
+            vertices[i + 2] = Math.random() * .3;
+        }
+        groundGeo.attributes.position.needsUpdate = true;
+        groundGeo.computeVertexNormals();
+
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotateX(-Math.PI / 2);
+        scene.add(ground);
+
+        const mountGeo = new THREE.CylinderGeometry(1, 1, 2, 12);
+        const mount = new THREE.Mesh(mountGeo, cramMat);
+        mount.position.y = 1;
+        scene.add(mount);
+
+        const turretBaseGeo = new THREE.CylinderGeometry(.5, .5, .2, 8);
+        const turretBase = new THREE.Mesh(turretBaseGeo, cramMat);
+        turretBase.rotateY(Math.PI / 8);
+        cram.add(turretBase)
+
+        const turretArmGeo = new THREE.BoxGeometry(.2, 1, .4);
+        const leftTurretArm = new THREE.Mesh(turretArmGeo, cramMat);
+        leftTurretArm.position.set(-.4, .4, 0)
+        cram.add(leftTurretArm)
+
+        const rightTurretArm = new THREE.Mesh(turretArmGeo, cramMat);
+        rightTurretArm.position.set(.4, .4, 0)
+        cram.add(rightTurretArm)
+
+
+
+        const gunCoreGeo = new THREE.BoxGeometry(.6, .4, .6);
+        const gunCore = new THREE.Mesh(gunCoreGeo, cramMat);
+        gunAsm.add(gunCore)
+
+        const barrelShroudGeo = new THREE.CylinderGeometry(.29, .15, .3, 4);
+        const barrelShroud = new THREE.Mesh(barrelShroudGeo, gunMat);
+        barrelShroud.rotateX(Math.PI / 2);
+        barrelShroud.rotateY(Math.PI / 4);
+        barrelShroud.position.set(0, 0, -.45)
+        gunAsm.add(barrelShroud);
+
+        const barrelGeo = new THREE.CylinderGeometry(.06, .06, 1, 6);
+        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+        barrel.position.set(0, 0, -.6);
+        barrel.rotateX(Math.PI / 2);
+        gunAsm.add(barrel);
+
+        const radarGeo = new THREE.CapsuleGeometry(.3, .5, 12, 12);
+        const radar = new THREE.Mesh(radarGeo, radarMat);
+        radar.position.y = .45
+        gunAsm.add(radar);
+
+        const sideCamGeo = new THREE.BoxGeometry(.15, .15, .4);
+        const sideCam = new THREE.Mesh(sideCamGeo, radarMat);
+        sideCam.position.set(-.35, .65, 0);
+        gunAsm.add(sideCam);
+
+        sideRadarGeo = new THREE.CylinderGeometry(.1, .1, .4, 12)
+        sideRadar = new THREE.Mesh(sideRadarGeo, radarMat);
+        sideRadar.rotateX(Math.PI / 2);
+        sideRadar.position.set(-.35, .45, 0);
+        gunAsm.add(sideRadar);
+
+        const magGeo = new THREE.CylinderGeometry(.2, .2, .9, 8);
+        const mag = new THREE.Mesh(magGeo, gunMat);
+        mag.rotateX(Math.PI / 2);
+        mag.position.set(0, -.35, -.1);
+        gunAsm.add(mag);
+
+        function fire() {
+            const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+            bullet.userData.verticalVelocity = 0;
+            bullet.userData.horizontalVelocity = velocity;
+            bullet.userData.age = 0;
+            barrel.getWorldPosition(barrelPos);
+            bullet.position.copy(barrelPos);
+            barrel.getWorldQuaternion(barrelRotation);
+            bullet.quaternion.copy(barrelRotation)
+            bullet.rotateX(Math.PI / 2);
+            scene.add(bullet);
+            projectiles.push(bullet);
+        }
+
+        // animate
+        function animate() {
+            requestAnimationFrame(animate);
+            delta = clock.getDelta();
+            if (mouseDown) {
+                lastFired += delta;
+                if (lastFired >= fireRate) {
+                    fire();
+                    lastFired = 0;
+                }
+            }
+            projectiles.forEach((bullet, index) => {
+                const lastHorizontalVelocity = bullet.userData.horizontalVelocity;
+                const horizontalDeceleration = 0.00003 * lastHorizontalVelocity * lastHorizontalVelocity;
+                const newHorizontalVelocity = lastHorizontalVelocity - (horizontalDeceleration * delta);
+                bullet.userData.horizontalVelocity = newHorizontalVelocity;
+                bullet.translateZ((newHorizontalVelocity / ratio) * delta);
+
+                const lastVerticalVelocity = bullet.userData.verticalVelocity;
+                const verticalDecelceration = 0.00003 * lastVerticalVelocity * lastVerticalVelocity;
+                const newVerticalVelocity = (lastVerticalVelocity + (g * delta)) -(verticalDecelceration * delta);
+                bullet.userData.verticalVelocity = newVerticalVelocity;
+                bullet.position.y -= (newVerticalVelocity / ratio) * delta;
+
+                bullet.scale.x += growth * delta;
+                bullet.scale.y += growth * delta;
+                bullet.userData.age += delta;
+
+                if (bullet.userData.age > selfDestruct) {
+                    bullet.material = explosionMat
+                    bullet.geometry = explosionGeo
+                    //scene.remove(bullet);
+                    //projectiles.splice(index, 1);
+                }
+
+                if (bullet.userData.age > selfDestruct + explosionLength) {
+                    scene.remove(bullet);
+                    projectiles.splice(index, 1);
+                }
+
+            });
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+    </script>
+</body>
+
+</html>
