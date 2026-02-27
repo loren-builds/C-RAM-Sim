@@ -34,10 +34,11 @@
         // variables
 
         const RoundsPerMinute = 4500;
-        const velocity = 3600
-        const growth = 10;
+        const velocity = 3600;
+        const growth = 20;
         const selfDestruct = 2.3;
-        const explosionLength = .002;
+        const explosionLength = .1;
+        const rotateSpeed = 2.13;
 
         const cram = new THREE.Group();
         cram.position.y = 2.1;
@@ -61,6 +62,19 @@
         const g = 32;
         let delta = 0;
         const ratio = 5.5;
+        let jX = 0;
+        let jY = 0;
+        let touchX = 0;
+        let touchY = 0;
+        const threshold = 25;
+        let left = null;
+        let right = null;
+        let up = null;
+        let down = null;
+        let rspd = 0
+        let lspd = 0
+        let uspd = 0
+        let dspd = 0
 
         // function definitions
 
@@ -114,6 +128,71 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
+        window.addEventListener('touchmove', (event) => {
+            event.preventDefault();
+            const touch = event.touches[0];
+            touchX = touch.clientX;
+            touchY = touch.clientY;
+            if (touchX > jX + threshold) {
+                right = true;
+                rspd = touchX - jX - threshold;
+                left = false;
+            }
+
+            if (touchX < jX - threshold) {
+                left = true;
+                lspd = jX - touchX - threshold;
+                right = false;
+            }
+
+            if (touchX < jX + threshold && touchX > jX - threshold) {
+                left = false;
+                right = false;
+            }
+
+            if (touchY < jY + threshold && touchY > jY - threshold) {
+                up = false;
+                down = false;
+            }
+
+            if (touchY < jY - threshold) {
+                up = true;
+                uspd = jY - touchY - threshold;
+                down = false;
+            }
+
+            if (touchY > jY + threshold) {
+                down = true;
+                dspd = touchY - jY - threshold;
+                up = false;
+            }
+            
+        });
+
+        window.addEventListener('touchstart', (event) => {
+            event.preventDefault();
+            const touch = event.touches[0];
+            jX = touch.clientX;
+            jY = touch.clientY;
+            touchX = jX;
+            touchY = jY;
+            mouseDown = true;
+        });
+
+        window.addEventListener('touchend', (event) => {
+            event.preventDefault();
+            touchX = 0;
+            touchY = 0;
+            jX = 0;
+            jY = 0;
+            left = false;
+            right = false;
+            up = false;
+            down = false;
+
+            mouseDown = false;
+        });
+
         // materials
 
         const cramMat = new THREE.MeshLambertMaterial({ color: 0xBA9F80, flatShading: true })
@@ -122,10 +201,10 @@
         const radarMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
         const groundMat = new THREE.MeshStandardMaterial({ color: 0x229922, flatShading: true, roughness: 0.8, metalness: 0.0, })
         const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, blending: THREE.AdditiveBlending })
-        const explosionMat = new THREE.MeshBasicMaterial({color: 0xffee00, transparent: true, blending: THREE.AdditiveBlending})
+        const explosionMat = new THREE.MeshBasicMaterial({color: 0xffffcc, transparent: true, blending: THREE.AdditiveBlending})
 
         const bulletGeo = new THREE.BoxGeometry(.1, .1, 4)
-        const explosionGeo = new THREE.SphereGeometry(.1)
+        const explosionGeo = new THREE.SphereGeometry(.2)
 
         const groundGeo = new THREE.PlaneGeometry(100, 100, 100, 100);
         const vertices = groundGeo.attributes.position.array;
@@ -224,6 +303,12 @@
                     lastFired = 0;
                 }
             }
+
+            if (left) {cram.rotateY(rotateSpeed * delta * (Math.min(lspd / 100, 1)))}
+            if (right) {cram.rotateY(-rotateSpeed * delta * (Math.min(rspd / 100, 1)))}
+            if (up && gunAsm.rotation.x < Math.PI / 2) {gunAsm.rotation.x += rotateSpeed * delta * (Math.min(uspd / 100, 1))}
+            if (down && gunAsm.rotation.x > -Math.PI / 8) {gunAsm.rotation.x -= rotateSpeed * delta * (Math.min(dspd / 100, 1))}
+
             projectiles.forEach((bullet, index) => {
                 const lastHorizontalVelocity = bullet.userData.horizontalVelocity;
                 const horizontalDeceleration = 0.00003 * lastHorizontalVelocity * lastHorizontalVelocity;
