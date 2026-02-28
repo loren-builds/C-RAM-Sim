@@ -47,7 +47,7 @@
         cram.add(gunAsm);
         gunAsm.position.set(0, .75, 0);
         gunAsm.add(camera);
-        camera.position.set(-3, 1, 4);
+        camera.position.set(1, .6, .9);
         const sensitivity = 0.001;
         let yaw = 0;
         let pitch = 0;
@@ -117,10 +117,14 @@
         window.addEventListener('mousedown', (event) => {
             if (document.pointerLockElement === renderer.domElement && event.button === 0) {
                 mouseDown = true;
+                flash.visible = true;
             }
         });
 
-        window.addEventListener('mouseup', () => { mouseDown = false; });
+        window.addEventListener('mouseup', () => {
+            mouseDown = false;
+            flash.visible = false;
+        });
 
         window.addEventListener('resize', function () {
             camera.aspect = window.innerWidth / window.innerHeight;
@@ -177,6 +181,7 @@
             touchX = jX;
             touchY = jY;
             mouseDown = true;
+            flash.visible = true;
         });
 
         window.addEventListener('touchend', (event) => {
@@ -189,8 +194,8 @@
             right = false;
             up = false;
             down = false;
-
             mouseDown = false;
+            flash.visible = false;
         });
 
         // materials
@@ -202,9 +207,16 @@
         const groundMat = new THREE.MeshStandardMaterial({ color: 0x229922, flatShading: true, roughness: 0.8, metalness: 0.0, })
         const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, blending: THREE.AdditiveBlending })
         const explosionMat = new THREE.MeshBasicMaterial({color: 0xffffcc, transparent: true, blending: THREE.AdditiveBlending})
+        const flashMat = new THREE.MeshLambertMaterial({color: 0xffaa00, flatShading: true, emissive: 0xff0000, emissiveIntensity: 2,})
 
-        const bulletGeo = new THREE.BoxGeometry(.1, .1, 4)
+        const bulletGeo = new THREE.BoxGeometry(.1, .1, 5)
         const explosionGeo = new THREE.SphereGeometry(.2)
+        const flashGeo = new THREE.BoxGeometry(.15, .15, .15);
+        const flash = new THREE.Mesh(flashGeo, flashMat);
+        flash.position.set(0, 0, -1.3)
+        flash.visible = false;
+        gunAsm.add(flash);
+
 
         const groundGeo = new THREE.PlaneGeometry(100, 100, 100, 100);
         const vertices = groundGeo.attributes.position.array;
@@ -295,6 +307,8 @@
         // animate
         function animate() {
             requestAnimationFrame(animate);
+            flash.rotateX(0.2);
+            flash.rotateY(0.5);
             delta = clock.getDelta();
             if (mouseDown) {
                 lastFired += delta;
