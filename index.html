@@ -2,8 +2,8 @@
 <html>
 
 <head>
-    <title>C-RAM Simulator</title>
-    <meta name="description" content="A Low-Poly Browser-Based Phalanx CIWS C-RAM Simulator Built with THREE.js">
+    <title>C-RAM Simulator - Operate a Phalanx C-RAM In Your Browser</title>
+    <meta name="description" content="A Low-Poly Browser-Based Phalanx C-RAM Simulator Built with THREE.js">
     <meta name="keywords" content="C-RAM, CIWS, Phalanx, Simulator, Three.js, Defense Game, Anti-Rocket">
     <link rel="icon" type="image/png" href="favicon.png">
     <style>
@@ -17,6 +17,7 @@
 </head>
 
 <body>
+    <h4 style="color: white; font-family: sans-serif; position: absolute;">Phalanx C-RAM Simulator - Click to Play</h1>
     <script type="importmap">
   {
     "imports": {
@@ -30,7 +31,7 @@
         // scene setup
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x001100);
+        scene.background = new THREE.Color(0x000000);
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
         const renderer = new THREE.WebGLRenderer();
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -280,6 +281,7 @@
             touchY = jY;
             mouseDown = true;
             flash.visible = true;
+            startFiring()
         });
 
         window.addEventListener('touchend', (event) => {
@@ -294,6 +296,7 @@
             down = false;
             mouseDown = false;
             flash.visible = false;
+            stopFiring();
         });
 
         // materials
