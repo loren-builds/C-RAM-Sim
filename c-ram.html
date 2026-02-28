@@ -31,6 +31,95 @@
         sunLight.position.set(100, 100, 100);
         scene.add(sunLight);
 
+        // 1. Setup the system
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let cramBuffer = null;
+        let sourceNode = null;
+
+        let spinUpBuffer, loopBuffer, spinDownBuffer;
+
+        async function initAudio() {
+            try {
+                const [up, loop, down] = await Promise.all([
+                    fetch('spinup.mp3').then(r => r.arrayBuffer()),
+                    fetch('brrt.mp3').then(r => r.arrayBuffer()),
+                    fetch('spindown.mp3').then(r => r.arrayBuffer())
+                ]);
+
+                spinUpBuffer = await audioContext.decodeAudioData(up);
+                loopBuffer = await audioContext.decodeAudioData(loop);
+                spinDownBuffer = await audioContext.decodeAudioData(down);
+
+                console.log("All C-RAM sounds loaded!");
+            } catch (err) {
+                console.error("Audio failed to load:", err);
+            }
+        }
+
+
+        async function resumeContext() {
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+                console.log("AudioContext Resumed!");
+            }
+        }
+
+        // 4. Play and Stop
+        let currentSource = null; // To track whatever is playing
+        let isLooping = false;    // To track if we are in the 'BRRT' phase
+
+        function startFiring() {
+            if (!spinUpBuffer || currentSource) return;
+
+            // 1. Create the Spin-up Player
+            const spinUpSource = audioContext.createBufferSource();
+            spinUpSource.buffer = spinUpBuffer;
+            spinUpSource.connect(audioContext.destination);
+
+            // 2. The "Hand-off": When spin-up ends, start the loop
+            spinUpSource.onended = () => {
+                // Only start the loop if the user is still holding the trigger!
+                if (isTriggerHeld) {
+                    startLoop();
+                }
+            };
+
+            currentSource = spinUpSource;
+            isTriggerHeld = true;
+            spinUpSource.start(0);
+        }
+
+        function startLoop() {
+            const loopSource = audioContext.createBufferSource();
+            loopSource.buffer = loopBuffer;
+            loopSource.loop = true;
+            loopSource.connect(audioContext.destination);
+
+            currentSource = loopSource;
+            isLooping = true;
+            loopSource.start(0);
+        }
+
+        function stopFiring() {
+            isTriggerHeld = false; // Prevents loop from starting if spin-up hasn't finished
+
+            if (currentSource) {
+                currentSource.stop(); // Stop the spin-up or the loop
+                currentSource = null;
+            }
+//if (isLooping) {
+                playSpinDown();
+                //isLooping = false;
+            //}
+        }
+
+        function playSpinDown() {
+            const downSource = audioContext.createBufferSource();
+            downSource.buffer = spinDownBuffer;
+            downSource.connect(audioContext.destination);
+            downSource.start(0);
+        }
+
         // variables
 
         const RoundsPerMinute = 4500;
@@ -97,7 +186,8 @@
             delete keys[e.code];
         });
 
-        window.addEventListener('click', () => {
+        window.addEventListener('click', async () => {
+            await resumeContext();
             renderer.domElement.requestPointerLock();
         });
 
@@ -118,12 +208,14 @@
             if (document.pointerLockElement === renderer.domElement && event.button === 0) {
                 mouseDown = true;
                 flash.visible = true;
+                startFiring();
             }
         });
 
         window.addEventListener('mouseup', () => {
             mouseDown = false;
             flash.visible = false;
+            stopFiring();
         });
 
         window.addEventListener('resize', function () {
@@ -170,7 +262,7 @@
                 dspd = touchY - jY - threshold;
                 up = false;
             }
-            
+
         });
 
         window.addEventListener('touchstart', (event) => {
@@ -206,8 +298,8 @@
         const radarMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
         const groundMat = new THREE.MeshStandardMaterial({ color: 0x229922, flatShading: true, roughness: 0.8, metalness: 0.0, })
         const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, blending: THREE.AdditiveBlending })
-        const explosionMat = new THREE.MeshBasicMaterial({color: 0xffffcc, transparent: true, blending: THREE.AdditiveBlending})
-        const flashMat = new THREE.MeshLambertMaterial({color: 0xffaa00, flatShading: true, emissive: 0xff0000, emissiveIntensity: 2,})
+        const explosionMat = new THREE.MeshBasicMaterial({ color: 0xffffcc, transparent: true, blending: THREE.AdditiveBlending })
+        const flashMat = new THREE.MeshLambertMaterial({ color: 0xffaa00, flatShading: true, emissive: 0xff0000, emissiveIntensity: 2, })
 
         const bulletGeo = new THREE.BoxGeometry(.1, .1, 5)
         const explosionGeo = new THREE.SphereGeometry(.2)
@@ -318,10 +410,10 @@
                 }
             }
 
-            if (left) {cram.rotateY(rotateSpeed * delta * (Math.min(lspd / 100, 1)))}
-            if (right) {cram.rotateY(-rotateSpeed * delta * (Math.min(rspd / 100, 1)))}
-            if (up && gunAsm.rotation.x < Math.PI / 2) {gunAsm.rotation.x += rotateSpeed * delta * (Math.min(uspd / 100, 1))}
-            if (down && gunAsm.rotation.x > -Math.PI / 8) {gunAsm.rotation.x -= rotateSpeed * delta * (Math.min(dspd / 100, 1))}
+            if (left) { cram.rotateY(rotateSpeed * delta * (Math.min(lspd / 100, 1))) }
+            if (right) { cram.rotateY(-rotateSpeed * delta * (Math.min(rspd / 100, 1))) }
+            if (up && gunAsm.rotation.x < Math.PI / 2) { gunAsm.rotation.x += rotateSpeed * delta * (Math.min(uspd / 100, 1)) }
+            if (down && gunAsm.rotation.x > -Math.PI / 8) { gunAsm.rotation.x -= rotateSpeed * delta * (Math.min(dspd / 100, 1)) }
 
             projectiles.forEach((bullet, index) => {
                 const lastHorizontalVelocity = bullet.userData.horizontalVelocity;
@@ -332,7 +424,7 @@
 
                 const lastVerticalVelocity = bullet.userData.verticalVelocity;
                 const verticalDecelceration = 0.00003 * lastVerticalVelocity * lastVerticalVelocity;
-                const newVerticalVelocity = (lastVerticalVelocity + (g * delta)) -(verticalDecelceration * delta);
+                const newVerticalVelocity = (lastVerticalVelocity + (g * delta)) - (verticalDecelceration * delta);
                 bullet.userData.verticalVelocity = newVerticalVelocity;
                 bullet.position.y -= (newVerticalVelocity / ratio) * delta;
 
@@ -356,6 +448,7 @@
 
             renderer.render(scene, camera);
         }
+        initAudio();
         animate();
 
     </script>
