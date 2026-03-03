@@ -2,9 +2,9 @@
 <html>
 
 <head>
-    <title>C-RAM Simulator - Operate a Phalanx C-RAM In Your Browser</title>
+    <title>C-RAM Drone Defense - Operate a Phalanx C-RAM In Your Browser</title>
     <meta name="description" content="A Low-Poly Browser-Based Phalanx C-RAM Simulator Built with THREE.js">
-    <meta name="keywords" content="C-RAM, CIWS, Phalanx, Simulator, Three.js, Defense Game, Anti-Rocket">
+    <meta name="keywords" content="C-RAM, CIWS, Phalanx, Simulator, Three.js, Defense Game, Anti-Drone">
     <link rel="icon" type="image/png" href="favicon.png">
     <style>
         body {
@@ -17,8 +17,43 @@
 </head>
 
 <body>
-    <h4 style="color: white; font-family: sans-serif; position: absolute;">Phalanx C-RAM Simulator - Click to Play</h1>
-    <script type="importmap">
+    <h4 id="info" style="color: white; font-family: sans-serif; position: absolute;">C-RAM Drone Defense: Protect
+        Your Territory From Drones. For Sound On Mobile, Ensure Silent Mode is Off</h1>
+
+        <h5 style="
+        color: white;
+        white-space: nowrap;
+        font-family: sans-serif;
+        display: block; 
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        margin: 0;
+        z-index: 10;">2026 Basement GameDev</h5>
+
+        <h3 id="gameOverScreen" style="
+        color: white;
+        white-space: nowrap;
+        font-family: sans-serif;
+        display: none; 
+        position: absolute; 
+        top: 35%; 
+        left: 50%; 
+        transform: translate(-50%, -50%);
+        z-index: 10;">Game Over.
+            You took 3 hits.</h3>
+
+        <button id="restartBtn" style="
+        display: none; 
+        position: absolute; 
+        top: 50%; 
+        left: 50%; 
+        transform: translate(-50%, -50%);
+        padding: 20px 40px;
+        font-size: 24px;
+        z-index: 10;
+    ">RESTART GAME</button>
+        <script type="importmap">
   {
     "imports": {
       "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
@@ -26,441 +61,533 @@
   }
 </script>
 
-    <script type="module">
-        import * as THREE from 'three';
-        // scene setup
+        <script type="module">
+            import * as THREE from 'three';
+            // scene setup
 
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x000000);
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
-        const renderer = new THREE.WebGLRenderer();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-        renderer.outputColorSpace = THREE.SRGBColorSpace;
-        const ambientLight = new THREE.AmbientLight(0xffffff, .5);
-        scene.add(ambientLight);
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1);
-        sunLight.position.set(100, 100, 100);
-        scene.add(sunLight);
-
-        // 1. Setup the system
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        let cramBuffer = null;
-        let sourceNode = null;
-
-        let spinUpBuffer, loopBuffer, spinDownBuffer;
-
-        async function initAudio() {
-            try {
-                const [up, loop, down] = await Promise.all([
-                    fetch('spinup.mp3').then(r => r.arrayBuffer()),
-                    fetch('brrt.mp3').then(r => r.arrayBuffer()),
-                    fetch('spindown.mp3').then(r => r.arrayBuffer())
-                ]);
-
-                spinUpBuffer = await audioContext.decodeAudioData(up);
-                loopBuffer = await audioContext.decodeAudioData(loop);
-                spinDownBuffer = await audioContext.decodeAudioData(down);
-
-            } catch (err) {
-                console.error("Audio failed to load:", err);
-            }
-        }
-
-
-        async function resumeContext() {
-            if (audioContext.state === 'suspended') {
-                await audioContext.resume();
-                console.log("AudioContext Resumed!");
-            }
-        }
-
-        // 4. Play and Stop
-        let currentSource = null; // To track whatever is playing
-        let isLooping = false;    // To track if we are in the 'BRRT' phase
-
-        function startFiring() {
-            if (!spinUpBuffer || currentSource) return;
-
-            // 1. Create the Spin-up Player
-            const spinUpSource = audioContext.createBufferSource();
-            spinUpSource.buffer = spinUpBuffer;
-            spinUpSource.connect(audioContext.destination);
-
-            spinUpSource.onended = () => {
-            if (mouseDown) {
-                startLoop()
-            }
-                
-            };
-
-            currentSource = spinUpSource;
-            spinUpSource.start(0);
-        }
-
-        function startLoop() {
-            const loopSource = audioContext.createBufferSource();
-            loopSource.buffer = loopBuffer;
-            loopSource.loop = true;
-            loopSource.connect(audioContext.destination);
-
-            currentSource = loopSource;
-            isLooping = true;
-            loopSource.start(0);
-        }
-
-        function stopFiring() {
-
-            if (currentSource) {
-                currentSource.stop(); // Stop the spin-up or the loop
-                currentSource = null;
-            }
-            
-            playSpinDown();
-            
-        }
-
-        function playSpinDown() {
-            const downSource = audioContext.createBufferSource();
-            downSource.buffer = spinDownBuffer;
-            downSource.connect(audioContext.destination);
-            downSource.start(0);
-        }
-
-        // variables
-
-        const RoundsPerMinute = 4500;
-        const velocity = 3600;
-        const growth = 20;
-        const selfDestruct = 2.3;
-        const explosionLength = .1;
-        const rotateSpeed = 2.13;
-
-        const cram = new THREE.Group();
-        cram.position.y = 2.1;
-        scene.add(cram);
-        let gunAsm = new THREE.Group();
-        cram.add(gunAsm);
-        gunAsm.position.set(0, .75, 0);
-        gunAsm.add(camera);
-        camera.position.set(1, .6, .9);
-        const sensitivity = 0.001;
-        let yaw = 0;
-        let pitch = 0;
-        const projectiles = [];
-        const barrelPos = new THREE.Vector3();
-        const barrelRotation = new THREE.Quaternion();
-        const clock = new THREE.Clock()
-        let mouseDown = false;
-        const RPS = RoundsPerMinute / 60;
-        let fireRate = 1 / RPS;
-        let lastFired = 0;
-        const g = 32;
-        let delta = 0;
-        const ratio = 5.5;
-        let jX = 0;
-        let jY = 0;
-        let touchX = 0;
-        let touchY = 0;
-        const threshold = 25;
-        let left = null;
-        let right = null;
-        let up = null;
-        let down = null;
-        let rspd = 0
-        let lspd = 0
-        let uspd = 0
-        let dspd = 0
-
-        // function definitions
-
-        function loadTexture(source) {
-            const loader = new THREE.TextureLoader();
-            const texture = loader.load(source);
-            texture.colorSpace = THREE.SRGBColorSpace;
-            return texture;
-        }
-
-        // event listeners
-
-        const keys = {};
-
-        window.addEventListener('keydown', (e) => {
-            keys[e.code] = true;
-        });
-
-        window.addEventListener('keyup', (e) => {
-            delete keys[e.code];
-        });
-
-        window.addEventListener('click', async () => {
-            await resumeContext();
-            renderer.domElement.requestPointerLock();
-        });
-
-        window.addEventListener('mousemove', (event) => {
-
-            yaw -= event.movementX * sensitivity;
-            pitch -= event.movementY * sensitivity;
-
-            pitch = Math.max(-Math.PI / 8, Math.min(Math.PI / 2, pitch));
-
-            camera.rotation.order = "YXZ";
-
-            gunAsm.rotation.x = pitch;
-            cram.rotation.y = yaw;
-        });
-
-        window.addEventListener('mousedown', (event) => {
-            if (document.pointerLockElement === renderer.domElement && event.button === 0) {
-                mouseDown = true;
-                flash.visible = true;
-                startFiring();
-            }
-        });
-
-        window.addEventListener('mouseup', () => {
-            mouseDown = false;
-            flash.visible = false;
-            stopFiring();
-        });
-
-        window.addEventListener('resize', function () {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+            const renderer = new THREE.WebGLRenderer();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+            document.body.appendChild(renderer.domElement);
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            const ambientLight = new THREE.AmbientLight(0xffffff, .5);
+            scene.add(ambientLight);
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+            sunLight.position.set(100, 100, 100);
+            scene.add(sunLight);
+            const info = document.getElementById("info");
+            const restartBtn = document.getElementById('restartBtn');
+            restartBtn.addEventListener('click', () => {
+                resetGame();
+            });
+            const gameOverScreen = document.getElementById("gameOverScreen");
 
-        window.addEventListener('touchmove', (event) => {
-            event.preventDefault();
-            const touch = event.touches[0];
-            touchX = touch.clientX;
-            touchY = touch.clientY;
-            if (touchX > jX + threshold) {
-                right = true;
-                rspd = touchX - jX - threshold;
-                left = false;
-            }
+            // 1. Setup the system
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            let cramBuffer = null;
+            let sourceNode = null;
 
-            if (touchX < jX - threshold) {
-                left = true;
-                lspd = jX - touchX - threshold;
-                right = false;
-            }
+            let spinUpBuffer, loopBuffer, spinDownBuffer, explosionBuffer;
 
-            if (touchX < jX + threshold && touchX > jX - threshold) {
-                left = false;
-                right = false;
-            }
+            async function initAudio() {
+                try {
+                    const [up, loop, down, expo] = await Promise.all([
+                        fetch('spinup.mp3').then(r => r.arrayBuffer()),
+                        fetch('brrt.mp3').then(r => r.arrayBuffer()),
+                        fetch('spindown.mp3').then(r => r.arrayBuffer()),
+                        fetch('explosion.mp3').then(r => r.arrayBuffer())
+                    ]);
 
-            if (touchY < jY + threshold && touchY > jY - threshold) {
-                up = false;
-                down = false;
-            }
+                    spinUpBuffer = await audioContext.decodeAudioData(up);
+                    loopBuffer = await audioContext.decodeAudioData(loop);
+                    spinDownBuffer = await audioContext.decodeAudioData(down);
+                    explosionBuffer = await audioContext.decodeAudioData(expo);
 
-            if (touchY < jY - threshold) {
-                up = true;
-                uspd = jY - touchY - threshold;
-                down = false;
-            }
-
-            if (touchY > jY + threshold) {
-                down = true;
-                dspd = touchY - jY - threshold;
-                up = false;
-            }
-
-        });
-
-        window.addEventListener('touchstart', (event) => {
-            event.preventDefault();
-            const touch = event.touches[0];
-            jX = touch.clientX;
-            jY = touch.clientY;
-            touchX = jX;
-            touchY = jY;
-            mouseDown = true;
-            flash.visible = true;
-            startFiring()
-        });
-
-        window.addEventListener('touchend', (event) => {
-            event.preventDefault();
-            touchX = 0;
-            touchY = 0;
-            jX = 0;
-            jY = 0;
-            left = false;
-            right = false;
-            up = false;
-            down = false;
-            mouseDown = false;
-            flash.visible = false;
-            stopFiring();
-        });
-
-        // materials
-
-        const cramMat = new THREE.MeshLambertMaterial({ color: 0xBA9F80, flatShading: true })
-        const gunMat = new THREE.MeshLambertMaterial({ color: 0x637e54, flatShading: true })
-        const barrelMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-        const radarMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0x229922, flatShading: true, roughness: 0.8, metalness: 0.0, })
-        const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, blending: THREE.AdditiveBlending })
-        const explosionMat = new THREE.MeshBasicMaterial({ color: 0xffffcc, transparent: true, blending: THREE.AdditiveBlending })
-        const flashMat = new THREE.MeshLambertMaterial({ color: 0xffaa00, flatShading: true, emissive: 0xff0000, emissiveIntensity: 2, })
-
-        const bulletGeo = new THREE.BoxGeometry(.1, .1, 5)
-        const explosionGeo = new THREE.SphereGeometry(.2)
-        const flashGeo = new THREE.BoxGeometry(.15, .15, .15);
-        const flash = new THREE.Mesh(flashGeo, flashMat);
-        flash.position.set(0, 0, -1.3)
-        flash.visible = false;
-        gunAsm.add(flash);
-
-
-        const groundGeo = new THREE.PlaneGeometry(100, 100, 100, 100);
-        const vertices = groundGeo.attributes.position.array;
-        for (let i = 0; i < vertices.length; i += 3) {
-            vertices[i + 2] = Math.random() * .3;
-        }
-        groundGeo.attributes.position.needsUpdate = true;
-        groundGeo.computeVertexNormals();
-
-        const ground = new THREE.Mesh(groundGeo, groundMat);
-        ground.rotateX(-Math.PI / 2);
-        scene.add(ground);
-
-        const mountGeo = new THREE.CylinderGeometry(1, 1, 2, 12);
-        const mount = new THREE.Mesh(mountGeo, cramMat);
-        mount.position.y = 1;
-        scene.add(mount);
-
-        const turretBaseGeo = new THREE.CylinderGeometry(.5, .5, .2, 8);
-        const turretBase = new THREE.Mesh(turretBaseGeo, cramMat);
-        turretBase.rotateY(Math.PI / 8);
-        cram.add(turretBase)
-
-        const turretArmGeo = new THREE.BoxGeometry(.2, 1, .4);
-        const leftTurretArm = new THREE.Mesh(turretArmGeo, cramMat);
-        leftTurretArm.position.set(-.4, .4, 0)
-        cram.add(leftTurretArm)
-
-        const rightTurretArm = new THREE.Mesh(turretArmGeo, cramMat);
-        rightTurretArm.position.set(.4, .4, 0)
-        cram.add(rightTurretArm)
-
-
-
-        const gunCoreGeo = new THREE.BoxGeometry(.6, .4, .6);
-        const gunCore = new THREE.Mesh(gunCoreGeo, cramMat);
-        gunAsm.add(gunCore)
-
-        const barrelShroudGeo = new THREE.CylinderGeometry(.29, .15, .3, 4);
-        const barrelShroud = new THREE.Mesh(barrelShroudGeo, gunMat);
-        barrelShroud.rotateX(Math.PI / 2);
-        barrelShroud.rotateY(Math.PI / 4);
-        barrelShroud.position.set(0, 0, -.45)
-        gunAsm.add(barrelShroud);
-
-        const barrelGeo = new THREE.CylinderGeometry(.06, .06, 1, 6);
-        const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-        barrel.position.set(0, 0, -.6);
-        barrel.rotateX(Math.PI / 2);
-        gunAsm.add(barrel);
-
-        const radarGeo = new THREE.CapsuleGeometry(.3, .5, 12, 12);
-        const radar = new THREE.Mesh(radarGeo, radarMat);
-        radar.position.y = .45
-        gunAsm.add(radar);
-
-        const sideCamGeo = new THREE.BoxGeometry(.15, .15, .4);
-        const sideCam = new THREE.Mesh(sideCamGeo, radarMat);
-        sideCam.position.set(-.35, .65, 0);
-        gunAsm.add(sideCam);
-
-        const sideRadarGeo = new THREE.CylinderGeometry(.1, .1, .4, 12)
-        const sideRadar = new THREE.Mesh(sideRadarGeo, radarMat);
-        sideRadar.rotateX(Math.PI / 2);
-        sideRadar.position.set(-.35, .45, 0);
-        gunAsm.add(sideRadar);
-
-        const magGeo = new THREE.CylinderGeometry(.2, .2, .9, 8);
-        const mag = new THREE.Mesh(magGeo, gunMat);
-        mag.rotateX(Math.PI / 2);
-        mag.position.set(0, -.35, -.1);
-        gunAsm.add(mag);
-
-        function fire() {
-            const bullet = new THREE.Mesh(bulletGeo, bulletMat);
-            bullet.userData.verticalVelocity = 0;
-            bullet.userData.horizontalVelocity = velocity;
-            bullet.userData.age = 0;
-            barrel.getWorldPosition(barrelPos);
-            bullet.position.copy(barrelPos);
-            barrel.getWorldQuaternion(barrelRotation);
-            bullet.quaternion.copy(barrelRotation)
-            bullet.rotateX(Math.PI / 2);
-            scene.add(bullet);
-            projectiles.push(bullet);
-        }
-
-        // animate
-        function animate() {
-            requestAnimationFrame(animate);
-            flash.rotateX(0.2);
-            flash.rotateY(0.5);
-            delta = clock.getDelta();
-            if (mouseDown) {
-                lastFired += delta;
-                if (lastFired >= fireRate) {
-                    fire();
-                    lastFired = 0;
+                } catch (err) {
+                    console.error("Audio failed to load:", err);
                 }
             }
 
-            if (left) { cram.rotateY(rotateSpeed * delta * (Math.min(lspd / 100, 1))) }
-            if (right) { cram.rotateY(-rotateSpeed * delta * (Math.min(rspd / 100, 1))) }
-            if (up && gunAsm.rotation.x < Math.PI / 2) { gunAsm.rotation.x += rotateSpeed * delta * (Math.min(uspd / 100, 1)) }
-            if (down && gunAsm.rotation.x > -Math.PI / 8) { gunAsm.rotation.x -= rotateSpeed * delta * (Math.min(dspd / 100, 1)) }
 
-            projectiles.forEach((bullet, index) => {
-                const lastHorizontalVelocity = bullet.userData.horizontalVelocity;
-                const horizontalDeceleration = 0.00003 * lastHorizontalVelocity * lastHorizontalVelocity;
-                const newHorizontalVelocity = lastHorizontalVelocity - (horizontalDeceleration * delta);
-                bullet.userData.horizontalVelocity = newHorizontalVelocity;
-                bullet.translateZ((newHorizontalVelocity / ratio) * delta);
+            async function resumeContext() {
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                    console.log("AudioContext Resumed!");
+                }
+            }
 
-                const lastVerticalVelocity = bullet.userData.verticalVelocity;
-                const verticalDecelceration = 0.00003 * lastVerticalVelocity * lastVerticalVelocity;
-                const newVerticalVelocity = (lastVerticalVelocity + (g * delta)) - (verticalDecelceration * delta);
-                bullet.userData.verticalVelocity = newVerticalVelocity;
-                bullet.position.y -= (newVerticalVelocity / ratio) * delta;
+            let currentSource = null;
+            let isLooping = false;
 
-                bullet.scale.x += growth * delta;
-                bullet.scale.y += growth * delta;
-                bullet.userData.age += delta;
+            function playExplosion() {
+                if (!explosionBuffer) {
+                    return;
+                }
+                const expoSource = audioContext.createBufferSource();
+                expoSource.buffer = explosionBuffer;
 
-                if (bullet.userData.age > selfDestruct) {
-                    bullet.material = explosionMat
-                    bullet.geometry = explosionGeo
-                    //scene.remove(bullet);
-                    //projectiles.splice(index, 1);
+                expoSource.connect(audioContext.destination);
+
+                expoSource.start();
+            }
+
+            function startFiring() {
+                if (!spinUpBuffer || currentSource) return;
+
+                // 1. Create the Spin-up Player
+                const spinUpSource = audioContext.createBufferSource();
+                spinUpSource.buffer = spinUpBuffer;
+                spinUpSource.connect(audioContext.destination);
+
+                spinUpSource.onended = () => {
+                    if (mouseDown) {
+                        startLoop()
+                    }
+
+                };
+
+                currentSource = spinUpSource;
+                spinUpSource.start(0);
+            }
+
+            function startLoop() {
+                const loopSource = audioContext.createBufferSource();
+                loopSource.buffer = loopBuffer;
+                loopSource.loop = true;
+                loopSource.connect(audioContext.destination);
+
+                currentSource = loopSource;
+                isLooping = true;
+                loopSource.start(0);
+            }
+
+            function stopFiring() {
+
+                if (currentSource) {
+                    currentSource.stop();
+                    currentSource = null;
                 }
 
-                if (bullet.userData.age > selfDestruct + explosionLength) {
-                    scene.remove(bullet);
-                    projectiles.splice(index, 1);
+                playSpinDown();
+
+            }
+
+            function playSpinDown() {
+                const downSource = audioContext.createBufferSource();
+                downSource.buffer = spinDownBuffer;
+                downSource.connect(audioContext.destination);
+                downSource.start(0);
+            }
+
+            // variables
+
+            const RoundsPerMinute = 4500;
+            const velocity = 3600;
+            const growth = 20;
+            const selfDestruct = 2.3;
+            const explosionLength = .1;
+            const rotateSpeed = 2.13;
+            const burstRadius = 1;
+            let droneSpeed = .1;
+
+            const cram = new THREE.Group();
+            cram.position.y = 2.1;
+            scene.add(cram);
+            let gunAsm = new THREE.Group();
+            cram.add(gunAsm);
+            gunAsm.position.set(0, .75, 0);
+            gunAsm.add(camera);
+            camera.position.set(1, .6, .9);
+            const drone = new THREE.Group();
+            scene.add(drone);
+            const partsGroup = new THREE.Group();
+            drone.add(partsGroup);
+            const sensitivity = 0.001;
+            let yaw = 0;
+            let pitch = 0;
+            let droneSpd = droneSpeed;
+            const projectiles = [];
+            const barrelPos = new THREE.Vector3();
+            const barrelRotation = new THREE.Quaternion();
+            const clock = new THREE.Clock()
+            let mouseDown = false;
+            const RPS = RoundsPerMinute / 60;
+            let fireRate = 1 / RPS;
+            let lastFired = 0;
+            const g = 32;
+            let delta = 0;
+            const ratio = 5.5;
+            let jX = 0;
+            let jY = 0;
+            let touchX = 0;
+            let touchY = 0;
+            const threshold = 25;
+            let left = null;
+            let right = null;
+            let up = null;
+            let down = null;
+            let rspd = 0
+            let lspd = 0
+            let uspd = 0
+            let dspd = 0
+            let kills = 0
+            let hits = 0
+            let droneCost = 0
+            let ammoCost = 0
+            let gameOver = false
+
+            // function definitions
+
+            function loadTexture(source) {
+                const loader = new THREE.TextureLoader();
+                const texture = loader.load(source);
+                texture.colorSpace = THREE.SRGBColorSpace;
+                return texture;
+            }
+
+            // event listeners
+
+            const keys = {};
+
+            window.addEventListener('keydown', (e) => {
+                keys[e.code] = true;
+            });
+
+            window.addEventListener('keyup', (e) => {
+                delete keys[e.code];
+            });
+
+            window.addEventListener('click', async () => {
+                await resumeContext();
+                renderer.domElement.requestPointerLock();
+            });
+
+            window.addEventListener('mousemove', (event) => {
+
+                yaw -= event.movementX * sensitivity;
+                pitch -= event.movementY * sensitivity;
+
+                pitch = Math.max(-Math.PI / 8, Math.min(Math.PI / 2, pitch));
+
+                camera.rotation.order = "YXZ";
+
+                gunAsm.rotation.x = pitch;
+                cram.rotation.y = yaw;
+            });
+
+            window.addEventListener('mousedown', (event) => {
+                if (document.pointerLockElement === renderer.domElement && event.button === 0) {
+                    mouseDown = true;
+                    flash.visible = true;
+                    startFiring();
+                }
+            });
+
+            window.addEventListener('mouseup', () => {
+                mouseDown = false;
+                flash.visible = false;
+                stopFiring();
+            });
+
+            window.addEventListener('resize', function () {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            window.addEventListener('touchmove', (event) => {
+                event.preventDefault();
+                const touch = event.touches[0];
+                touchX = touch.clientX;
+                touchY = touch.clientY;
+                if (touchX > jX + threshold) {
+                    right = true;
+                    rspd = touchX - jX - threshold;
+                    left = false;
+                }
+
+                if (touchX < jX - threshold) {
+                    left = true;
+                    lspd = jX - touchX - threshold;
+                    right = false;
+                }
+
+                if (touchX < jX + threshold && touchX > jX - threshold) {
+                    left = false;
+                    right = false;
+                }
+
+                if (touchY < jY + threshold && touchY > jY - threshold) {
+                    up = false;
+                    down = false;
+                }
+
+                if (touchY < jY - threshold) {
+                    up = true;
+                    uspd = jY - touchY - threshold;
+                    down = false;
+                }
+
+                if (touchY > jY + threshold) {
+                    down = true;
+                    dspd = touchY - jY - threshold;
+                    up = false;
                 }
 
             });
 
-            renderer.render(scene, camera);
-        }
-        initAudio();
-        animate();
+            window.addEventListener('touchstart', (event) => {
+                event.preventDefault();
+                const touch = event.touches[0];
+                jX = touch.clientX;
+                jY = touch.clientY;
+                touchX = jX;
+                touchY = jY;
+                mouseDown = true;
+                flash.visible = true;
+                startFiring()
+            });
 
-    </script>
+            window.addEventListener('touchend', (event) => {
+                event.preventDefault();
+                touchX = 0;
+                touchY = 0;
+                jX = 0;
+                jY = 0;
+                left = false;
+                right = false;
+                up = false;
+                down = false;
+                mouseDown = false;
+                flash.visible = false;
+                stopFiring();
+            });
+
+            // materials
+
+            const cramMat = new THREE.MeshLambertMaterial({ color: 0xBA9F80, flatShading: true })
+            const gunMat = new THREE.MeshLambertMaterial({ color: 0x637e54, flatShading: true })
+            const barrelMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
+            const radarMat = new THREE.MeshLambertMaterial({ color: 0xdddddd, flatShading: true })
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x229922, flatShading: true, roughness: 0.8, metalness: 0.0, })
+            const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, blending: THREE.AdditiveBlending })
+            const explosionMat = new THREE.MeshBasicMaterial({ color: 0xffffcc, transparent: true, blending: THREE.AdditiveBlending })
+            const flashMat = new THREE.MeshLambertMaterial({ color: 0xffaa00, flatShading: true, emissive: 0xff0000, emissiveIntensity: 2, })
+            const droneMat = new THREE.MeshLambertMaterial({ color: 0x000000, flatShading: true, emissive: 0xffffff, emissiveIntensity: .2, })
+
+            const fuselageGeo = new THREE.BoxGeometry(.5, .25, .5);
+            const armGeo = new THREE.BoxGeometry(2, .1, .1);
+            const fuselage = new THREE.Mesh(fuselageGeo, droneMat)
+            partsGroup.add(fuselage)
+            const arm1 = new THREE.Mesh(armGeo, droneMat);
+            partsGroup.add(arm1);
+            arm1.rotateY(Math.PI / 4)
+            const arm2 = new THREE.Mesh(armGeo, droneMat);
+            partsGroup.add(arm2);
+            arm2.rotateY(-Math.PI / 4)
+            partsGroup.rotateX(.5)
+
+            const bulletGeo = new THREE.BoxGeometry(.1, .1, 5)
+            const explosionGeo = new THREE.SphereGeometry(.2)
+            const flashGeo = new THREE.BoxGeometry(.15, .15, .15);
+            const flash = new THREE.Mesh(flashGeo, flashMat);
+            flash.position.set(0, 0, -1.3)
+            flash.visible = false;
+            gunAsm.add(flash);
+
+
+            const groundGeo = new THREE.PlaneGeometry(100, 100, 100, 100);
+            const vertices = groundGeo.attributes.position.array;
+            for (let i = 0; i < vertices.length; i += 3) {
+                vertices[i + 2] = Math.random() * .3;
+            }
+            groundGeo.attributes.position.needsUpdate = true;
+            groundGeo.computeVertexNormals();
+
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotateX(-Math.PI / 2);
+            scene.add(ground);
+
+            const mountGeo = new THREE.CylinderGeometry(1, 1, 2, 12);
+            const mount = new THREE.Mesh(mountGeo, cramMat);
+            mount.position.y = 1;
+            scene.add(mount);
+
+            const turretBaseGeo = new THREE.CylinderGeometry(.5, .5, .2, 8);
+            const turretBase = new THREE.Mesh(turretBaseGeo, cramMat);
+            turretBase.rotateY(Math.PI / 8);
+            cram.add(turretBase)
+
+            const turretArmGeo = new THREE.BoxGeometry(.2, 1, .4);
+            const leftTurretArm = new THREE.Mesh(turretArmGeo, cramMat);
+            leftTurretArm.position.set(-.4, .4, 0)
+            cram.add(leftTurretArm)
+
+            const rightTurretArm = new THREE.Mesh(turretArmGeo, cramMat);
+            rightTurretArm.position.set(.4, .4, 0)
+            cram.add(rightTurretArm)
+
+
+
+            const gunCoreGeo = new THREE.BoxGeometry(.6, .4, .6);
+            const gunCore = new THREE.Mesh(gunCoreGeo, cramMat);
+            gunAsm.add(gunCore)
+
+            const barrelShroudGeo = new THREE.CylinderGeometry(.29, .15, .3, 4);
+            const barrelShroud = new THREE.Mesh(barrelShroudGeo, gunMat);
+            barrelShroud.rotateX(Math.PI / 2);
+            barrelShroud.rotateY(Math.PI / 4);
+            barrelShroud.position.set(0, 0, -.45)
+            gunAsm.add(barrelShroud);
+
+            const barrelGeo = new THREE.CylinderGeometry(.06, .06, 1, 6);
+            const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+            barrel.position.set(0, 0, -.6);
+            barrel.rotateX(Math.PI / 2);
+            gunAsm.add(barrel);
+
+            const radarGeo = new THREE.CapsuleGeometry(.3, .5, 12, 12);
+            const radar = new THREE.Mesh(radarGeo, radarMat);
+            radar.position.y = .45
+            gunAsm.add(radar);
+
+            const sideCamGeo = new THREE.BoxGeometry(.15, .15, .4);
+            const sideCam = new THREE.Mesh(sideCamGeo, radarMat);
+            sideCam.position.set(-.35, .65, 0);
+            gunAsm.add(sideCam);
+
+            const sideRadarGeo = new THREE.CylinderGeometry(.1, .1, .4, 12)
+            const sideRadar = new THREE.Mesh(sideRadarGeo, radarMat);
+            sideRadar.rotateX(Math.PI / 2);
+            sideRadar.position.set(-.35, .45, 0);
+            gunAsm.add(sideRadar);
+
+            const magGeo = new THREE.CylinderGeometry(.2, .2, .9, 8);
+            const mag = new THREE.Mesh(magGeo, gunMat);
+            mag.rotateX(Math.PI / 2);
+            mag.position.set(0, -.35, -.1);
+            gunAsm.add(mag);
+
+            function resetGame() {
+                gameOver = false;
+                restartBtn.style.display = "none";
+                gameOverScreen.style.display = "none";
+                kills = 0;
+                hits = 0;
+                ammoCost = 0;
+                droneCost = 0;
+                droneSpd = droneSpeed;
+                info.innerText = "Kills: " + kills + "\nHits Taken: " + hits + "\nDrone Cost: $" + droneCost + "\nAmmo Cost: $" + ammoCost
+                spawnDrone();
+            }
+
+            function spawnDrone() {
+                drone.position.set((-100 + (Math.random() * 200)), 50, (-100 + (Math.random() * 200)));
+                drone.lookAt((-50 + (Math.random() * 100)), 0, (-50 + (Math.random() * 100)))
+            }
+
+            function fire() {
+                if (!gameOver) {
+                    const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+                    bullet.userData.verticalVelocity = 0;
+                    bullet.userData.horizontalVelocity = velocity;
+                    bullet.userData.age = 0;
+                    barrel.getWorldPosition(barrelPos);
+                    bullet.position.copy(barrelPos);
+                    barrel.getWorldQuaternion(barrelRotation);
+                    bullet.quaternion.copy(barrelRotation)
+                    bullet.rotateX(Math.PI / 2);
+                    scene.add(bullet);
+                    projectiles.push(bullet);
+                    ammoCost += 27;
+                    info.innerText = "Kills: " + kills + "\nHits Taken: " + hits + "\nDrone Cost: $" + droneCost + "\nAmmo Cost: $" + ammoCost
+                }
+            }
+
+            // animate
+            function animate() {
+                requestAnimationFrame(animate);
+                drone.translateZ(droneSpd);
+                flash.rotateX(0.2);
+                flash.rotateY(0.5);
+                delta = clock.getDelta();
+                if (drone.position.y < 0) {
+                    playExplosion();
+                    hits += 1
+                    info.innerText = "Kills: " + kills + "\nHits Taken: " + hits + "\nDrone Cost: $" + droneCost + "\nAmmo Cost: $" + ammoCost
+                    if (hits >= 3) {
+                        gameOver = true;
+                        restartBtn.style.display = "block";
+                        gameOverScreen.style.display = "block";
+                        document.exitPointerLock();
+                        drone.position.y = 10000
+                        return;
+                    }
+                    spawnDrone();
+                }
+                if (mouseDown) {
+                    lastFired += delta;
+                    if (lastFired >= fireRate) {
+                        fire();
+                        lastFired = 0;
+                    }
+                }
+
+                if (left) { cram.rotateY(rotateSpeed * delta * (Math.min(lspd / 100, 1))) }
+                if (right) { cram.rotateY(-rotateSpeed * delta * (Math.min(rspd / 100, 1))) }
+                if (up && gunAsm.rotation.x < Math.PI / 2) { gunAsm.rotation.x += rotateSpeed * delta * (Math.min(uspd / 100, 1)) }
+                if (down && gunAsm.rotation.x > -Math.PI / 8) { gunAsm.rotation.x -= rotateSpeed * delta * (Math.min(dspd / 100, 1)) }
+
+                projectiles.forEach((bullet, index) => {
+                    const lastHorizontalVelocity = bullet.userData.horizontalVelocity;
+                    const horizontalDeceleration = 0.00003 * lastHorizontalVelocity * lastHorizontalVelocity;
+                    const newHorizontalVelocity = lastHorizontalVelocity - (horizontalDeceleration * delta);
+                    bullet.userData.horizontalVelocity = newHorizontalVelocity;
+                    bullet.translateZ((newHorizontalVelocity / ratio) * delta);
+
+                    const lastVerticalVelocity = bullet.userData.verticalVelocity;
+                    const verticalDecelceration = 0.00003 * lastVerticalVelocity * lastVerticalVelocity;
+                    const newVerticalVelocity = (lastVerticalVelocity + (g * delta)) - (verticalDecelceration * delta);
+                    bullet.userData.verticalVelocity = newVerticalVelocity;
+                    bullet.position.y -= (newVerticalVelocity / ratio) * delta;
+
+                    if (bullet.position.x < drone.position.x + burstRadius && bullet.position.x > drone.position.x - burstRadius && bullet.position.y < drone.position.y + burstRadius && bullet.position.y > drone.position.y - burstRadius && bullet.position.z < drone.position.z + burstRadius && bullet.position.z > drone.position.z - burstRadius) {
+                        playExplosion();
+                        spawnDrone();
+                        droneCost += 650
+                        bullet.userData.age = selfDestruct;
+                        kills += 1;
+                        info.innerText = "Kills: " + kills + "\nHits Taken: " + hits + "\nDrone Cost: $" + droneCost + "\nAmmo Cost: $" + ammoCost
+                        droneSpd += .005;
+                    }
+
+                    bullet.scale.x += growth * delta;
+                    bullet.scale.y += growth * delta;
+                    bullet.userData.age += delta;
+
+                    if (bullet.userData.age > selfDestruct) {
+                        bullet.material = explosionMat
+                        bullet.geometry = explosionGeo
+
+                    }
+
+                    if (bullet.userData.age > selfDestruct + explosionLength) {
+                        scene.remove(bullet);
+                        projectiles.splice(index, 1);
+                    }
+
+                });
+                if (!gameOver) {
+                    renderer.render(scene, camera);
+                }
+            }
+            spawnDrone();
+            initAudio();
+            animate();
+
+        </script>
 </body>
 
 </html>
