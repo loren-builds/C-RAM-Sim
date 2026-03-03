@@ -339,6 +339,7 @@
             });
 
             window.addEventListener('touchstart', (event) => {
+                burstRadius = 3;
                 event.preventDefault();
                 const touch = event.touches[0];
                 jX = touch.clientX;
@@ -521,71 +522,73 @@
                         gameOver = true;
                         restartBtn.style.display = "block";
                         gameOverScreen.style.display = "block";
-                        document.exitPointerLock();
-                        drone.position.y = 10000
-                        return;
-                    }
-                    spawnDrone();
-                }
-                if (mouseDown) {
-                    lastFired += delta;
-                    if (lastFired >= fireRate) {
-                        fire();
-                        lastFired = 0;
-                    }
-                }
-
-                if (left) { cram.rotateY(rotateSpeed * delta * (Math.min(lspd / 100, 1))) }
-                if (right) { cram.rotateY(-rotateSpeed * delta * (Math.min(rspd / 100, 1))) }
-                if (up && gunAsm.rotation.x < Math.PI / 2) { gunAsm.rotation.x += rotateSpeed * delta * (Math.min(uspd / 100, 1)) }
-                if (down && gunAsm.rotation.x > -Math.PI / 8) { gunAsm.rotation.x -= rotateSpeed * delta * (Math.min(dspd / 100, 1)) }
-
-                projectiles.forEach((bullet, index) => {
-                    const lastHorizontalVelocity = bullet.userData.horizontalVelocity;
-                    const horizontalDeceleration = 0.00003 * lastHorizontalVelocity * lastHorizontalVelocity;
-                    const newHorizontalVelocity = lastHorizontalVelocity - (horizontalDeceleration * delta);
-                    bullet.userData.horizontalVelocity = newHorizontalVelocity;
-                    bullet.translateZ((newHorizontalVelocity / ratio) * delta);
-
-                    const lastVerticalVelocity = bullet.userData.verticalVelocity;
-                    const verticalDecelceration = 0.00003 * lastVerticalVelocity * lastVerticalVelocity;
-                    const newVerticalVelocity = (lastVerticalVelocity + (g * delta)) - (verticalDecelceration * delta);
-                    bullet.userData.verticalVelocity = newVerticalVelocity;
-                    bullet.position.y -= (newVerticalVelocity / ratio) * delta;
-
-                    if (bullet.position.x < drone.position.x + burstRadius && bullet.position.x > drone.position.x - burstRadius && bullet.position.y < drone.position.y + burstRadius && bullet.position.y > drone.position.y - burstRadius && bullet.position.z < drone.position.z + burstRadius && bullet.position.z > drone.position.z - burstRadius) {
-                        playExplosion();
+                        try {
+                            document.exitPointerLock();
+                        } catch (error) {
+                            drone.position.y = 10000
+                            return;
+                        }
                         spawnDrone();
-                        droneCost += 650
-                        bullet.userData.age = selfDestruct;
-                        kills += 1;
-                        info.innerText = "Kills: " + kills + "\nHits Taken: " + hits + "\nDrone Cost: $" + droneCost + "\nAmmo Cost: $" + ammoCost
-                        droneSpd += .005;
+                    }
+                    if (mouseDown) {
+                        lastFired += delta;
+                        if (lastFired >= fireRate) {
+                            fire();
+                            lastFired = 0;
+                        }
                     }
 
-                    bullet.scale.x += growth * delta;
-                    bullet.scale.y += growth * delta;
-                    bullet.userData.age += delta;
+                    if (left) { cram.rotateY(rotateSpeed * delta * (Math.min(lspd / 100, 1))) }
+                    if (right) { cram.rotateY(-rotateSpeed * delta * (Math.min(rspd / 100, 1))) }
+                    if (up && gunAsm.rotation.x < Math.PI / 2) { gunAsm.rotation.x += rotateSpeed * delta * (Math.min(uspd / 100, 1)) }
+                    if (down && gunAsm.rotation.x > -Math.PI / 8) { gunAsm.rotation.x -= rotateSpeed * delta * (Math.min(dspd / 100, 1)) }
 
-                    if (bullet.userData.age > selfDestruct) {
-                        bullet.material = explosionMat
-                        bullet.geometry = explosionGeo
+                    projectiles.forEach((bullet, index) => {
+                        const lastHorizontalVelocity = bullet.userData.horizontalVelocity;
+                        const horizontalDeceleration = 0.00003 * lastHorizontalVelocity * lastHorizontalVelocity;
+                        const newHorizontalVelocity = lastHorizontalVelocity - (horizontalDeceleration * delta);
+                        bullet.userData.horizontalVelocity = newHorizontalVelocity;
+                        bullet.translateZ((newHorizontalVelocity / ratio) * delta);
 
+                        const lastVerticalVelocity = bullet.userData.verticalVelocity;
+                        const verticalDecelceration = 0.00003 * lastVerticalVelocity * lastVerticalVelocity;
+                        const newVerticalVelocity = (lastVerticalVelocity + (g * delta)) - (verticalDecelceration * delta);
+                        bullet.userData.verticalVelocity = newVerticalVelocity;
+                        bullet.position.y -= (newVerticalVelocity / ratio) * delta;
+
+                        if (bullet.position.x < drone.position.x + burstRadius && bullet.position.x > drone.position.x - burstRadius && bullet.position.y < drone.position.y + burstRadius && bullet.position.y > drone.position.y - burstRadius && bullet.position.z < drone.position.z + burstRadius && bullet.position.z > drone.position.z - burstRadius) {
+                            playExplosion();
+                            spawnDrone();
+                            droneCost += 650
+                            bullet.userData.age = selfDestruct;
+                            kills += 1;
+                            info.innerText = "Kills: " + kills + "\nHits Taken: " + hits + "\nDrone Cost: $" + droneCost + "\nAmmo Cost: $" + ammoCost
+                            droneSpd += .005;
+                        }
+
+                        bullet.scale.x += growth * delta;
+                        bullet.scale.y += growth * delta;
+                        bullet.userData.age += delta;
+
+                        if (bullet.userData.age > selfDestruct) {
+                            bullet.material = explosionMat
+                            bullet.geometry = explosionGeo
+
+                        }
+
+                        if (bullet.userData.age > selfDestruct + explosionLength) {
+                            scene.remove(bullet);
+                            projectiles.splice(index, 1);
+                        }
+
+                    });
+                    if (!gameOver) {
+                        renderer.render(scene, camera);
                     }
-
-                    if (bullet.userData.age > selfDestruct + explosionLength) {
-                        scene.remove(bullet);
-                        projectiles.splice(index, 1);
-                    }
-
-                });
-                if (!gameOver) {
-                    renderer.render(scene, camera);
                 }
-            }
-            spawnDrone();
-            initAudio();
-            animate();
+                spawnDrone();
+                initAudio();
+                animate();
 
         </script>
 </body>
